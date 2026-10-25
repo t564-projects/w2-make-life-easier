@@ -78,3 +78,9 @@ Added a "Sort by" menu to the dashboard: Most frequent (default, shortest interv
 > make each section inside the item click expandable so I dont see all at once
 
 The four sections inside an expanded item (Why this prediction, Brands you buy, Purchase history, Adjust) are now collapsed by default, each with a small hint (e.g. "10 products", "56 purchases"). Open sections stay open when the page re-renders. Checked in a browser. Commit `b645eaa`.
+
+## 13. Adjust open by default
+
+> leave just the adjust section already open
+
+The Adjust section now starts open and the other three stay collapsed. If I close Adjust on an item it stays closed for that item while browsing. Checked in a browser. Commit `a8753a3`.
