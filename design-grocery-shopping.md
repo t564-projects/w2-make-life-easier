@@ -55,11 +55,18 @@ Amazon order history -> scraper -> SQLite -> pattern engine -> dashboard
 
 ### Pattern engine
 
+Implemented in `src/patterns.py`; run it with `.venv/bin/python src/patterns.py`. Tests: `.venv/bin/python -m unittest discover -s tests`.
+
+- One purchase per item per delivery day; quantities from `received_qty` only (cancelled, refunded and out-of-stock units don't count).
 - Interval = median gap between purchases (robust to one odd gap).
-- Usual quantity = most common quantity per purchase.
-- Confidence depends on the number of purchases and how consistent the gaps are.
-- Only lines with `received_qty > 0` count as purchases.
-- Items with low confidence go to a separate candidates list I can promote to tracked.
+- Usual quantity = most common quantity per purchase; ties take the smaller.
+- Spread = median absolute deviation of the gaps divided by the interval.
+- Confidence: high = 6+ purchases and spread <= 0.35; medium = 4+ purchases and spread <= 0.6; otherwise low.
+- Status: `tracked` (medium or high confidence, or promoted by me), `candidate` (low confidence), `lapsed` (not bought for 3+ intervals and 45+ days, so no nudges), `paused` (my choice).
+- Next due = last bought + interval. An item is due when it is tracked and today >= next due.
+- `item_stats` is rebuilt from `order_items` on every run; my edits live in `overrides` and are merged on read, so they always win and survive recomputing.
+
+First run on 12 months of data: 159 items, 30 tracked, 25 lapsed, 104 candidates.
 
 ### Dashboard
 
@@ -92,7 +99,7 @@ Amazon order history -> scraper -> SQLite -> pattern engine -> dashboard
 Each layer is useful on its own if the next one fails.
 
 1. **Get the data:** done. `.venv/bin/python src/sync.py` logs in, lists orders for the last 12 months, and stores only Amazon Fresh orders in `data/grocery.db`. Whole Foods orders (my sister's) and regular Amazon orders are recorded in `skipped_orders` and ignored. Re-runs only fetch new orders and the last 14 days (cancellations and refunds land late); `--full` refetches everything.
-2. **Analyze:** compute intervals and quantities into SQLite.
+2. **Analyze:** done. Intervals, quantities, confidence and due dates are computed into SQLite by `src/patterns.py`. Known gap: substitutes (e.g. two brands of cottage cheese) are tracked as separate items.
 3. **Dashboard:** view the logic and edit overrides.
 4. **Notify:** daily email of due items.
 5. **Cart (stretch):** Alexa skill test, then Playwright fallback.

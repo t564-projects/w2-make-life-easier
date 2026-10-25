@@ -34,6 +34,21 @@ CREATE TABLE IF NOT EXISTS order_items (
 );
 CREATE INDEX IF NOT EXISTS idx_items_asin ON order_items(asin);
 
+-- Computed by patterns.py; rebuilt from order_items on every run, so never edit by hand.
+CREATE TABLE IF NOT EXISTS item_stats (
+    asin          TEXT PRIMARY KEY,
+    title         TEXT NOT NULL,
+    n_purchases   INTEGER NOT NULL,
+    first_bought  TEXT NOT NULL,
+    last_bought   TEXT NOT NULL,
+    interval_days REAL,             -- median gap between purchases; NULL with a single purchase
+    usual_qty     INTEGER NOT NULL,
+    spread        REAL,             -- median absolute deviation of gaps / interval (lower is steadier)
+    confidence    TEXT NOT NULL,    -- high | medium | low
+    purchases     TEXT NOT NULL,    -- JSON [[date, qty], ...] so the dashboard can show the math
+    computed_at   TEXT NOT NULL
+);
+
 -- Overrides always win over computed values and must survive reloads.
 CREATE TABLE IF NOT EXISTS overrides (
     asin          TEXT PRIMARY KEY,
