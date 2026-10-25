@@ -41,8 +41,14 @@
   .pill.low { background: var(--line); color: var(--muted); }
   .edited { color: var(--warn); font-size: 12px; margin-left: 6px; }
   .detail td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
-  h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 6px; }
-  .detail h3:first-child { margin-top: 0; }
+  details.section { border-top: 1px solid var(--line); padding: 8px 0; }
+  details.section:first-child { border-top: 0; }
+  details.section > summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; list-style: none; }
+  details.section > summary::before { content: "▸"; display: inline-block; width: 16px; }
+  details.section[open] > summary::before { content: "▾"; }
+  details.section > summary::-webkit-details-marker { display: none; }
+  details.section > summary .hint { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 8px; }
+  details.section > .body { margin-top: 8px; padding-left: 16px; }
   .why { margin: 0; padding-left: 20px; }
   .why li { margin-bottom: 4px; }
   .brands { width: auto; min-width: 60%; font-size: 14px; }
@@ -114,7 +120,7 @@ function cmp(a, b) {
   if (a == null || b == null) return (a == null) - (b == null);
   return a < b ? -1 : a > b ? 1 : 0;
 }
-const state = { items: [], tab: "due", open: null, sort: "frequency" };
+const state = { items: [], tab: "due", open: null, sort: "frequency", sections: new Set() };
 
 const $ = (sel) => document.querySelector(sel);
 function el(tag, props = {}, ...kids) {
@@ -180,6 +186,16 @@ function render() {
       el("th", { textContent: h, className: n === 1 || n === 5 ? "hide-sm" : "" })))), body));
 }
 
+// A collapsible block inside the expanded row; which ones are open survives re-renders.
+function section(i, key, title, hint, ...body) {
+  const id = i.item_type + "|" + key;
+  const node = el("details", { className: "section", open: state.sections.has(id) },
+    el("summary", {}, title, hint ? el("span", { className: "hint", textContent: hint }) : null),
+    el("div", { className: "body" }, ...body));
+  node.ontoggle = () => { node.open ? state.sections.add(id) : state.sections.delete(id); };
+  return node;
+}
+
 function detail(i) {
   const interval = el("input", { type: "number", min: "1", step: "1", value: i.interval_days ? Math.round(i.interval_days) : "" });
   const qty = el("input", { type: "number", min: "1", step: "1", value: i.usual_qty });
@@ -201,7 +217,6 @@ function detail(i) {
   }
   const money = (v) => v == null ? "—" : "$" + v.toFixed(2);
   const brands = i.products.length ? [
-    el("h3", { textContent: "Brands you buy" }),
     el("table", { className: "brands" },
       el("thead", {}, el("tr", {}, ...["", "Product", "Times bought", "Last price", "Avg price", ""].map(h => el("th", { textContent: h })))),
       el("tbody", {}, i.products.map(p => el("tr", {},
@@ -234,16 +249,13 @@ function detail(i) {
     onclick: () => { state.allDates = all ? null : i.item_type; render(); },
   }) : null;
 
+  const found = i.products.length;
   return el("tr", { className: "detail" }, el("td", { colSpan: 6 },
-    el("h3", { textContent: "Why this prediction" }),
-    el("ul", { className: "why" }, i.rationale.map(t => el("li", { textContent: t }))),
-    ...brands,
-    el("h3", { textContent: "Purchase history" }),
-    el("div", { className: "dates" }, chips, more),
-    el("h3", { textContent: "Adjust" }),
-    el("div", { className: "controls" },
-      el("label", {}, "every", interval, "days"), el("label", {}, "qty", qty), ...buttons),
-    err));
+    section(i, "why", "Why this prediction", null, el("ul", { className: "why" }, i.rationale.map(t => el("li", { textContent: t })))),
+    found ? section(i, "brands", "Brands you buy", found + (found === 1 ? " product" : " products"), ...brands) : null,
+    section(i, "history", "Purchase history", i.purchases.length + " purchases", el("div", { className: "dates" }, chips, more)),
+    section(i, "adjust", "Adjust", null,
+      el("div", { className: "controls" }, el("label", {}, "every", interval, "days"), el("label", {}, "qty", qty), ...buttons), err)));
 }
 
 const sortSelect = $("#sort");
