@@ -75,6 +75,7 @@ First run on 12 months of data: 159 items, 30 tracked, 25 lapsed, 104 candidates
 Implemented as a Flask app (`src/app.py`) serving one static page (`src/static/index.html`). Run `.venv/bin/python src/app.py` and open http://127.0.0.1:5000. API tests: `tests/test_app.py`.
 
 - Tabs: Due now, Tracked, Candidates, Lapsed, Paused, each with a count. Rows show the item type, not the product name.
+- Sorting: a "Sort by" menu with Most frequent (default; shortest interval first, ties go to the item bought more often), Last bought (most recent first), Item (A to Z) and Next due (most overdue first). Items with no date or interval sort last.
 - Table: item type, last bought, interval, usual quantity, next due (with days overdue), confidence. Edited values are marked "edited".
 - Expanding a row shows, in order:
   - **Why this prediction:** plain-language steps (how many purchases, the gaps between them, the typical wait and why the middle value is used, the confidence reason, last bought + interval = next due).

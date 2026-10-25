@@ -21,7 +21,9 @@
   header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 16px; }
   h1 { font-size: 22px; margin: 0; }
   .sub { color: var(--muted); font-size: 13px; }
-  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+  select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); }
   .tab { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 999px; padding: 6px 14px; cursor: pointer; font: inherit; }
   .tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
   .tab .n { opacity: .75; margin-left: 4px; }
@@ -75,7 +77,10 @@
     <button id="recompute" title="Recalculate from the synced orders. Run src/sync.py to pull new orders.">Recompute</button>
   </header>
 
-  <div class="tabs" id="tabs" role="tablist"></div>
+  <div class="bar">
+    <div class="tabs" id="tabs" role="tablist"></div>
+    <label>Sort by <select id="sort"></select></label>
+  </div>
   <div class="card"><div id="list"></div></div>
 
   <form class="card add" id="add">
@@ -98,7 +103,18 @@ const TABS = [
   ["lapsed", "Lapsed", i => i.status === "lapsed"],
   ["paused", "Paused", i => i.status === "paused"],
 ];
-const state = { items: [], tab: "due", open: null };
+const SORTS = {
+  frequency: ["Most frequent", (a, b) => cmp(a.interval_days, b.interval_days) || b.n_purchases - a.n_purchases],
+  last_bought: ["Last bought", (a, b) => (a.last_bought == null) - (b.last_bought == null) || -cmp(a.last_bought, b.last_bought)],
+  item: ["Item (A–Z)", (a, b) => a.item_type.localeCompare(b.item_type)],
+  next_due: ["Next due", (a, b) => cmp(a.next_due, b.next_due)],
+};
+// Ascending compare with missing values always last.
+function cmp(a, b) {
+  if (a == null || b == null) return (a == null) - (b == null);
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+const state = { items: [], tab: "due", open: null, sort: "frequency" };
 
 const $ = (sel) => document.querySelector(sel);
 function el(tag, props = {}, ...kids) {
@@ -142,8 +158,7 @@ function render() {
   TABS.forEach(([key], idx) => tabs.children[idx].setAttribute("aria-selected", key === state.tab));
 
   const test = TABS.find(t => t[0] === state.tab)[2];
-  const rows = state.items.filter(test).sort((a, b) =>
-    (b.days_overdue ?? -1e9) - (a.days_overdue ?? -1e9) || b.n_purchases - a.n_purchases);
+  const rows = state.items.filter(test).sort(SORTS[state.sort][1]);
   const list = $("#list");
   if (!rows.length) { list.replaceChildren(el("div", { className: "empty", textContent: "Nothing here." })); return; }
 
@@ -230,6 +245,10 @@ function detail(i) {
       el("label", {}, "every", interval, "days"), el("label", {}, "qty", qty), ...buttons),
     err));
 }
+
+const sortSelect = $("#sort");
+sortSelect.append(...Object.entries(SORTS).map(([key, [label]]) => el("option", { value: key, textContent: label })));
+sortSelect.onchange = () => { state.sort = sortSelect.value; render(); };
 
 $("#recompute").onclick = async () => { await api("/api/recompute", "POST"); await load(); };
 
