@@ -57,4 +57,12 @@ Started the dashboard at http://127.0.0.1:5000 as a background task. No commit.
 
 > Can we have a doc/log where we start saving the prompts I am sending and a brief description of what you built/the commit id after it?
 
-Created this file. Commit: not committed yet; the id will be added once it is.
+Created this file. Committed in `70b9243` (together with entry 10).
+
+## 10. UI adjustments: item types, brands and a clearer detail view
+
+> Now, lets make some adjustments to the UI.
+> - First, the name, of the items, cant we have just the "type" like "Non-fat Greek Yogurt", "Cottage Cheese", "Cubed Sweet Potato" and etc. If I have a product that I bought different brands, show that when you click the item with a place with the default and backup brand (default should be the one I buy more obviously) and maybe the avg price or last price of each
+> - When I click the itens it shows all the dates, just show the last 5 dates and an option to expand; also explain the rationale more clearly, it is a bit confusing as is
+
+Items are now item types instead of product names: I typed all 160 products by hand into `src/item_types.json` (new products get a guessed type, flagged in the UI, and can be changed). The pattern engine now works per type, so brand switches no longer look like one item lapsing (159 products became 98 item types). Expanded rows show a step-by-step "Why this prediction", a "Brands you buy" table (default = bought most, backup = second, last and average price per unit, "change type"), and the last 5 purchase dates with the gap between them and a "Show all N dates" toggle. 25 tests pass. Commit `70b9243`.
