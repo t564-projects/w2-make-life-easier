@@ -72,3 +72,9 @@ Items are now item types instead of product names: I typed all 160 products by h
 > lets order items by how frequently I buy them (most frequent first) and have the option to order by last bought, item (alphabetical order) or next due. Commit afterwards
 
 Added a "Sort by" menu to the dashboard: Most frequent (default, shortest interval first), Last bought (most recent first), Item (A to Z) and Next due (most overdue first); items with no date or interval sort last. Checked all four orders in a browser. Commit `3dc49a3`.
+
+## 12. Collapsible sections
+
+> make each section inside the item click expandable so I dont see all at once
+
+The four sections inside an expanded item (Why this prediction, Brands you buy, Purchase history, Adjust) are now collapsed by default, each with a small hint (e.g. "10 products", "56 purchases"). Open sections stay open when the page re-renders. Checked in a browser. Commit `b645eaa`.
