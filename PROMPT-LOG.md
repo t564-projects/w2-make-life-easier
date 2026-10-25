@@ -66,3 +66,9 @@ Created this file. Committed in `70b9243` (together with entry 10).
 > - When I click the itens it shows all the dates, just show the last 5 dates and an option to expand; also explain the rationale more clearly, it is a bit confusing as is
 
 Items are now item types instead of product names: I typed all 160 products by hand into `src/item_types.json` (new products get a guessed type, flagged in the UI, and can be changed). The pattern engine now works per type, so brand switches no longer look like one item lapsing (159 products became 98 item types). Expanded rows show a step-by-step "Why this prediction", a "Brands you buy" table (default = bought most, backup = second, last and average price per unit, "change type"), and the last 5 purchase dates with the gap between them and a "Show all N dates" toggle. 25 tests pass. Commit `70b9243`.
+
+## 11. Sort the items
+
+> lets order items by how frequently I buy them (most frequent first) and have the option to order by last bought, item (alphabetical order) or next due. Commit afterwards
+
+Added a "Sort by" menu to the dashboard: Most frequent (default, shortest interval first), Last bought (most recent first), Item (A to Z) and Next due (most overdue first); items with no date or interval sort last. Checked all four orders in a browser. Commit `3dc49a3`.
