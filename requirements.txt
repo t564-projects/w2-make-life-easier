@@ -1,0 +1,2 @@
+amazon-orders[browser]
+python-dotenv

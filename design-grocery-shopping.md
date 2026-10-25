@@ -28,7 +28,7 @@ All my grocery shopping goes through Amazon Fresh, and I buy mostly the same sta
 | Trigger | Per-item nudge when an item is due |
 | Automation limit | Fill the cart only; I check out. No auto-purchase |
 | Purchase regularity | Very regular (same staples most weeks) |
-| Data source | Scraper that logs into my Amazon account (Fresh orders show item names) |
+| Data source | `amazon-orders` for login plus our own parser for Fresh / Whole Foods orders (see Spike findings) |
 | Cart filling | Try an Alexa skill first (I have an Echo); fall back to browser automation with Playwright |
 | Notifications | Email |
 | Hosting | My laptop |
@@ -47,15 +47,18 @@ Amazon order history -> scraper -> SQLite -> pattern engine -> dashboard
 
 ### Data model
 
-- `orders`: date, item name, ASIN, quantity, price.
+- `orders`: order number, date, synced_at. Fresh orders only.
+- `skipped_orders`: order number, date, reason (`whole_foods`, `other`) so sync doesn't refetch them.
+- `order_items`: ASIN, title, quantity, `received_qty`, price, weight, status. `received_qty` is quantity minus cancelled, refunded and out-of-stock units; the pattern engine uses it, not `quantity`.
 - `item_stats`: computed interval, usual quantity, confidence, next due date.
-- `overrides`: my edits (frequency, quantity, paused, manually added items). Overrides always win over computed values and must survive refreshes.
+- `overrides`: my edits (frequency, quantity, paused, tracked). Overrides always win over computed values and must survive refreshes.
 
 ### Pattern engine
 
 - Interval = median gap between purchases (robust to one odd gap).
 - Usual quantity = most common quantity per purchase.
 - Confidence depends on the number of purchases and how consistent the gaps are.
+- Only lines with `received_qty > 0` count as purchases.
 - Items with low confidence go to a separate candidates list I can promote to tracked.
 
 ### Dashboard
@@ -64,19 +67,31 @@ Amazon order history -> scraper -> SQLite -> pattern engine -> dashboard
 - Expanding a row shows the purchase dates and the math, e.g. "Mar 1, 9, 17 -> every 8 days -> high confidence".
 - Controls: edit frequency, edit quantity, pause or remove, add an item manually.
 
+## Spike findings (3 months, run Oct 25 2026)
+
+- **Login:** works with username and password only; no OTP key needed (no 2FA on the account). Amazon serves a JavaScript sign-in challenge, so `amazon-orders[browser]` and `playwright install chromium` are required, with the Playwright auth forms registered in the session config (see `src/amazon_session.py`).
+- **Library coverage:** 83 orders came back; 43 are regular Amazon orders with full items. The other 40 (Fresh / Whole Foods delivery, about 15 a month) came back with no items or total because they use a different page layout (`/uff/your-account/order-details`).
+- **Our parser:** `src/fresh_orders.py` reads the item list from `/uff/your-account/order-details/item-details?orderID=...` with the logged-in session. All 40 orders parsed: 302 line items, 97 distinct products, each with ASIN, title, quantity, line total, weight and price per pound for weighed items.
+- **Status notes:** 33 of 302 lines carry one (cancelled 15, weight adjusted 10, refunded 6, out of stock 2). Cancelled, refunded and out-of-stock units were never received, so they must not count as purchases.
+- **Header counts units:** "8 items in this order" was 7 rows with one quantity-2 line.
+- **Whole Foods orders** share the `/uff/` layout (or `/fopo/` for store receipts) but belong to my sister, so sync excludes them by the "Continue shopping on ..." text on the page.
+- **12-month sync:** 88 Fresh orders, 694 line items (Nov 2025 to Oct 2026); 22 Whole Foods and other orders skipped.
+- **Staples are clear:** cottage cheese (19 deliveries received), blueberries, grapes, chicken breasts, Roma tomatoes, onions.
+
 ## Risks
 
-1. **Scraper login.** Amazon may require 2FA; we may need a saved session or a one-time code step. Credentials live only in a local `.env` that is gitignored.
-2. **Fresh line items.** Untested whether the scraper (e.g. [amazon-orders](https://github.com/alexdlaird/amazon-orders)) sees Fresh orders. Spike this first.
-3. **Alexa and Fresh.** The [Alexa Shopping Actions API](https://developer.amazon.com/en-US/docs/alexa/alexa-shopping/alexa-shopping-actions-for-alexa-skills-api-reference.html) `AMAZON.AddToShoppingCart` needs ASINs and may not cover Fresh items. Needs a developer account and extra setup, so it is a stretch goal.
+1. **Scraper login.** Credentials live only in a local `.env` that is gitignored. Amazon's sign-in challenge can change and break the browser step. No 2FA on this account today.
+2. **Fresh line items.** Resolved by the spike above, but the `/uff/` HTML is undocumented and can change; the parser should fail loudly when a page has no item rows.
+3. **Alexa and Fresh.** The [Alexa Shopping Actions API](https://developer.amazon.com/en-US/docs/alexa/alexa-shopping/alexa-shopping-actions-for-alexa-skills-api-reference.html) `AMAZON.AddToShoppingCart` needs ASINs and may not cover Fresh items. We now have the ASINs, but it needs a developer account and extra setup, so it is a stretch goal.
 4. **Scraping terms.** Scraping my own account may violate Amazon's terms and can break when the site changes. Acceptable for a personal prototype; decided deliberately.
 5. **Laptop scheduling.** The daily job only runs when the laptop is awake.
+6. **History depth.** Only 3 months so far; longer history would improve intervals for slow-moving items.
 
 ## Build order
 
 Each layer is useful on its own if the next one fails.
 
-1. **Get the data:** spike the scraper and confirm Fresh line items come through.
+1. **Get the data:** done. `.venv/bin/python src/sync.py` logs in, lists orders for the last 12 months, and stores only Amazon Fresh orders in `data/grocery.db`. Whole Foods orders (my sister's) and regular Amazon orders are recorded in `skipped_orders` and ignored. Re-runs only fetch new orders and the last 14 days (cancellations and refunds land late); `--full` refetches everything.
 2. **Analyze:** compute intervals and quantities into SQLite.
 3. **Dashboard:** view the logic and edit overrides.
 4. **Notify:** daily email of due items.
