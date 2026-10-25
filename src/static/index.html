@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fresh Restock</title>
+<style>
+  :root {
+    --bg: #f6f7f5; --card: #fff; --text: #1d2420; --muted: #66706a; --line: #e2e6e1;
+    --accent: #1f7a4d; --accent-soft: #e3f3ea; --warn: #b4531a; --warn-soft: #fbeadd; --danger: #a63a3a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141816; --card: #1c211e; --text: #e6ebe7; --muted: #8f9a93; --line: #2a312d;
+      --accent: #5cc58f; --accent-soft: #1d3327; --warn: #e8a06b; --warn-soft: #3a2a1d; --danger: #e07a7a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 16px; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .tab { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 999px; padding: 6px 14px; cursor: pointer; font: inherit; }
+  .tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .tab .n { opacity: .75; margin-left: 4px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr.row { cursor: pointer; }
+  tr.row:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  tr:last-child > td { border-bottom: 0; }
+  .title { font-weight: 500; }
+  .num { white-space: nowrap; }
+  .pill { display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 12px; background: var(--accent-soft); color: var(--accent); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.low { background: var(--line); color: var(--muted); }
+  .edited { color: var(--warn); font-size: 12px; margin-left: 6px; }
+  .detail td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+  .detail .why { margin: 0 0 8px; }
+  .dates { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+  .dates span { background: var(--line); border-radius: 6px; padding: 1px 8px; font-size: 12px; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  label { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  input { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); width: 84px; }
+  input.wide { width: 220px; }
+  button { font: inherit; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--danger); }
+  .add { margin-top: 20px; padding: 14px 16px; }
+  .add h2 { font-size: 15px; margin: 0 0 10px; }
+  .empty { padding: 28px; text-align: center; color: var(--muted); }
+  .err { color: var(--danger); margin-top: 8px; font-size: 13px; }
+  @media (max-width: 720px) { .hide-sm { display: none; } input.wide { width: 100%; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Fresh Restock</h1>
+      <div class="sub" id="sync"></div>
+    </div>
+    <button id="recompute" title="Recalculate from the synced orders. Run src/sync.py to pull new orders.">Recompute</button>
+  </header>
+
+  <div class="tabs" id="tabs" role="tablist"></div>
+  <div class="card"><div id="list"></div></div>
+
+  <form class="card add" id="add">
+    <h2>Add an item by hand</h2>
+    <div class="controls">
+      <input class="wide" name="title" placeholder="Item name" required>
+      <label>every <input name="interval_days" type="number" min="1" step="1" value="7" required> days</label>
+      <label>qty <input name="quantity" type="number" min="1" step="1" value="1" required></label>
+      <input name="asin" placeholder="ASIN (optional)">
+      <button class="primary">Add</button>
+    </div>
+    <div class="err" id="add-err"></div>
+  </form>
+</main>
+
+<script>
+const TABS = [
+  ["due", "Due now", i => i.due],
+  ["tracked", "Tracked", i => i.status === "tracked"],
+  ["candidate", "Candidates", i => i.status === "candidate"],
+  ["lapsed", "Lapsed", i => i.status === "lapsed"],
+  ["paused", "Paused", i => i.status === "paused"],
+];
+const state = { items: [], tab: "due", open: null };
+
+const $ = (sel) => document.querySelector(sel);
+function el(tag, props = {}, ...kids) {
+  const node = Object.assign(document.createElement(tag), props);
+  for (const k of kids.flat()) if (k != null) node.append(k);
+  return node;
+}
+const fmtDate = (d) => d ? new Date(d + "T00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
+
+async function api(path, method = "GET", body) {
+  const res = await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body && JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+async function load() {
+  const data = await api("/api/items");
+  state.items = data.items;
+  $("#sync").textContent = data.last_sync
+    ? "Orders last synced " + new Date(data.last_sync).toLocaleString() + " · run src/sync.py to refresh"
+    : "No orders synced yet · run src/sync.py";
+  render();
+}
+
+function dueLabel(i) {
+  if (i.manual && i.due) return el("span", { className: "pill warn", textContent: "added by hand" });
+  if (!i.next_due) return "—";
+  const d = i.days_overdue;
+  const when = d === 0 ? "today" : d > 0 ? d + "d overdue" : "in " + -d + "d";
+  return el("span", {}, fmtDate(i.next_due), " ", el("span", { className: "pill" + (d > 0 ? " warn" : ""), textContent: when }));
+}
+
+function render() {
+  const tabs = $("#tabs");
+  tabs.replaceChildren(...TABS.map(([key, label, test]) =>
+    el("button", {
+      className: "tab", role: "tab", textContent: label,
+      onclick: () => { state.tab = key; state.open = null; render(); },
+    }, el("span", { className: "n", textContent: state.items.filter(test).length }))));
+  TABS.forEach(([key], idx) => tabs.children[idx].setAttribute("aria-selected", key === state.tab));
+
+  const test = TABS.find(t => t[0] === state.tab)[2];
+  const rows = state.items.filter(test).sort((a, b) =>
+    (b.days_overdue ?? -1e9) - (a.days_overdue ?? -1e9) || b.n_purchases - a.n_purchases);
+  const list = $("#list");
+  if (!rows.length) { list.replaceChildren(el("div", { className: "empty", textContent: "Nothing here." })); return; }
+
+  const body = el("tbody");
+  for (const i of rows) {
+    const open = state.open === i.asin;
+    body.append(el("tr", { className: "row", onclick: () => { state.open = open ? null : i.asin; render(); } },
+      el("td", {}, el("span", { className: "title", textContent: i.title })),
+      el("td", { className: "num hide-sm", textContent: fmtDate(i.last_bought) }),
+      el("td", { className: "num" }, i.interval_days ? "every " + +i.interval_days.toFixed(1) + "d" : "—",
+        i.overridden ? el("span", { className: "edited", textContent: "edited" }) : null),
+      el("td", { className: "num", textContent: i.usual_qty + "×" }),
+      el("td", { className: "num" }, dueLabel(i)),
+      el("td", { className: "hide-sm" }, i.confidence ? el("span", { className: "pill" + (i.confidence === "low" ? " low" : ""), textContent: i.confidence }) : "—")));
+    if (open) body.append(detail(i));
+  }
+  list.replaceChildren(el("table", {},
+    el("thead", {}, el("tr", {}, ...["Item", "Last bought", "Interval", "Qty", "Next due", "Confidence"].map((h, n) =>
+      el("th", { textContent: h, className: n === 1 || n === 5 ? "hide-sm" : "" })))), body));
+}
+
+function detail(i) {
+  const interval = el("input", { type: "number", min: "1", step: "1", value: i.interval_days ? Math.round(i.interval_days) : "" });
+  const qty = el("input", { type: "number", min: "1", step: "1", value: i.usual_qty });
+  const err = el("div", { className: "err" });
+  const act = async (fn) => { try { await fn(); await load(); } catch (e) { err.textContent = e.message; } };
+  const patch = (body) => act(() => api("/api/items/" + encodeURIComponent(i.asin), "PATCH", body));
+
+  const buttons = [
+    el("button", { className: "primary", textContent: "Save", onclick: () => patch({ interval_days: interval.value || null, quantity: qty.value || null }) }),
+  ];
+  if (i.status === "candidate" || i.status === "lapsed") buttons.push(el("button", { textContent: "Track", onclick: () => patch({ tracked: 1, paused: 0 }) }));
+  if (i.status === "paused") buttons.push(el("button", { textContent: "Resume", onclick: () => patch({ paused: 0 }) }));
+  else buttons.push(el("button", { textContent: "Pause", onclick: () => patch({ paused: 1 }) }));
+  if (i.overridden || i.manual || i.status === "paused" || state.tab === "tracked") {
+    buttons.push(el("button", {
+      className: "danger", textContent: i.manual ? "Remove" : "Reset my edits",
+      onclick: () => act(() => api("/api/items/" + encodeURIComponent(i.asin) + "/overrides", "DELETE")),
+    }));
+  }
+  return el("tr", { className: "detail" }, el("td", { colSpan: 6 },
+    el("p", { className: "why", textContent: i.explanation }),
+    el("div", { className: "dates" }, i.purchases.map(([d, q]) => el("span", { textContent: fmtDate(d) + (q > 1 ? " ×" + q : "") }))),
+    el("div", { className: "controls" },
+      el("label", {}, "every", interval, "days"), el("label", {}, "qty", qty), ...buttons),
+    err));
+}
+
+$("#recompute").onclick = async () => { await api("/api/recompute", "POST"); await load(); };
+
+$("#add").onsubmit = async (e) => {
+  e.preventDefault();
+  const form = Object.fromEntries(new FormData(e.target));
+  try {
+    await api("/api/items", "POST", form);
+    e.target.reset(); $("#add-err").textContent = "";
+    state.tab = "due";
+    await load();
+  } catch (err) { $("#add-err").textContent = err.message; }
+};
+
+load();
+</script>
+</body>
+</html>

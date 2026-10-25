@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS item_stats (
 -- Overrides always win over computed values and must survive reloads.
 CREATE TABLE IF NOT EXISTS overrides (
     asin          TEXT PRIMARY KEY,
+    title         TEXT,             -- only set for items I add by hand that have no order history
     interval_days REAL,
     quantity      INTEGER,
     paused        INTEGER NOT NULL DEFAULT 0,
@@ -65,4 +66,6 @@ def connect():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    if "title" not in {r[1] for r in conn.execute("PRAGMA table_info(overrides)")}:
+        conn.execute("ALTER TABLE overrides ADD COLUMN title TEXT")
     return conn

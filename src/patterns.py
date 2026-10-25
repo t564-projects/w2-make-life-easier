@@ -102,6 +102,18 @@ def item_rows(conn, today=None):
             "days_overdue": (today - next_due).days if next_due else None,
             "due": status == "tracked" and next_due is not None and today >= next_due,
             "explanation": explain(r),
+            "purchases": json.loads(r["purchases"]),
+            "manual": False,
+        })
+    # Items added by hand that have no order history yet: due right away, since I added them on purpose.
+    for r in conn.execute(
+            "SELECT * FROM overrides WHERE title IS NOT NULL AND asin NOT IN (SELECT asin FROM item_stats)"):
+        out.append({
+            "asin": r["asin"], "title": r["title"], "status": "paused" if r["paused"] else "tracked",
+            "confidence": None, "n_purchases": 0, "last_bought": None, "interval_days": r["interval_days"],
+            "usual_qty": r["quantity"] or 1, "overridden": True, "next_due": None, "days_overdue": None,
+            "due": not r["paused"], "explanation": "Added by hand; no order history yet.",
+            "purchases": [], "manual": True,
         })
     return out
 
