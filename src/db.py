@@ -66,6 +66,27 @@ CREATE TABLE IF NOT EXISTS overrides (
     paused        INTEGER NOT NULL DEFAULT 0,
     tracked       INTEGER NOT NULL DEFAULT 0
 );
+
+-- Snapshot of my Amazon Fresh cart, replaced wholesale each time cart.py reads it.
+CREATE TABLE IF NOT EXISTS cart_items (
+    asin       TEXT PRIMARY KEY,
+    title      TEXT NOT NULL,
+    quantity   INTEGER NOT NULL,
+    price      REAL,              -- per unit
+    fetched_at TEXT NOT NULL
+);
+
+-- Every attempt to put an item type in the cart; keeps auto-add from re-adding something I removed.
+CREATE TABLE IF NOT EXISTS cart_adds (
+    id        INTEGER PRIMARY KEY,
+    item_type TEXT NOT NULL,
+    asin      TEXT,
+    quantity  INTEGER NOT NULL,
+    status    TEXT NOT NULL,      -- added | failed
+    error     TEXT,
+    source    TEXT NOT NULL,      -- auto | manual
+    added_at  TEXT NOT NULL
+);
 """
 
 

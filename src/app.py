@@ -1,13 +1,21 @@
 """Local dashboard for the Fresh restock assistant.
 
-Usage: .venv/bin/python src/app.py   then open http://127.0.0.1:5000
+Usage: .venv/bin/python src/app.py            then open http://127.0.0.1:5000
+       .venv/bin/python src/app.py --no-auto  same, without filling the Fresh cart on its own (--port N to change the port)
 """
+import argparse
+import threading
+import time
+
 from flask import Flask, jsonify, request, send_from_directory
 
+import cart
 import patterns
 from db import connect
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
+
+AUTO_EVERY = 6 * 3600  # while the dashboard is running, look for overdue high-confidence items this often
 
 EDITABLE = {"interval_days": float, "quantity": int, "paused": int, "tracked": int}
 
@@ -21,7 +29,47 @@ def index():
 def items():
     conn = connect()
     last_sync = conn.execute("SELECT MAX(synced_at) FROM orders").fetchone()[0]
-    return jsonify({"items": patterns.item_rows(conn), "last_sync": last_sync})
+    return jsonify({"items": cart.annotate(conn, patterns.item_rows(conn)), "last_sync": last_sync})
+
+
+def cart_state(conn):
+    lines = cart.cart_lines(conn)
+    failed = {r["item_type"]: r["error"] for r in conn.execute(
+        "SELECT item_type, error FROM cart_adds WHERE id IN (SELECT MAX(id) FROM cart_adds GROUP BY item_type)"
+        " AND status = 'failed'")}
+    return {"lines": lines, "total": round(sum((l["price"] or 0) * l["quantity"] for l in lines), 2),
+            "fetched_at": lines[0]["fetched_at"] if lines else None, "failed": failed, **cart.JOB}
+
+
+@app.get("/api/cart")
+def cart_get():
+    return jsonify(cart_state(connect()))
+
+
+@app.post("/api/cart/add")
+def cart_add():
+    """Add the named item types to the Fresh cart in the background; the page polls /api/cart for the result."""
+    names = (request.get_json(force=True) or {}).get("item_types") or []
+    if not names:
+        return jsonify(error="item_types is required"), 400
+    if not cart.start_job(f"Adding {len(names)} item{'s' if len(names) != 1 else ''} to your Fresh cart",
+                          lambda conn: cart.add_items(conn, names, "manual")):
+        return jsonify(error="the cart is busy; try again in a moment"), 409
+    return jsonify(ok=True), 202
+
+
+@app.post("/api/cart/refresh")
+def cart_refresh():
+    if not cart.start_job("Reading your Fresh cart", lambda conn: {"lines": len(cart.refresh(conn))}):
+        return jsonify(error="the cart is busy; try again in a moment"), 409
+    return jsonify(ok=True), 202
+
+
+def auto_loop():
+    while True:
+        # Skips quietly when I'm already adding something by hand; the next round will catch up.
+        cart.start_job("Adding overdue items to your Fresh cart", cart.run_auto)
+        time.sleep(AUTO_EVERY)
 
 
 @app.post("/api/recompute")
@@ -99,5 +147,11 @@ def edit_product(asin):
 
 
 if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--no-auto", action="store_true", help="don't add overdue high-confidence items to the cart on my behalf")
+    ap.add_argument("--port", type=int, default=5000)
+    args = ap.parse_args()
     patterns.compute_stats(connect())
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    if not args.no_auto:
+        threading.Thread(target=auto_loop, daemon=True).start()
+    app.run(host="127.0.0.1", port=args.port, debug=False)

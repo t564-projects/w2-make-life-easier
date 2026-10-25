@@ -41,6 +41,13 @@ class AppTest(unittest.TestCase):
         self.client.patch("/api/items/Milk", json={"interval_days": None, "quantity": None})
         self.assertEqual(self.items()["Milk"]["interval_days"], 7)
 
+    def test_items_carry_cart_info_and_cart_endpoint_works(self):
+        milk = self.items()["Milk"]
+        self.assertEqual(set(milk["cart"]), {"in_cart", "can_add", "auto", "quantity", "unit_price", "price", "label"})
+        state = self.client.get("/api/cart").get_json()
+        self.assertEqual((state["lines"], state["total"], state["busy"]), ([], 0, False))
+        self.assertEqual(self.client.post("/api/cart/add", json={}).status_code, 400)
+
     def test_pause_and_reset(self):
         self.client.patch("/api/items/Milk", json={"paused": 1})
         self.assertEqual(self.items()["Milk"]["status"], "paused")

@@ -66,6 +66,19 @@
   button { font: inherit; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.danger { color: var(--danger); }
+  .cart { margin-bottom: 16px; padding: 12px 16px; }
+  .cart-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+  .cart-head h2 { font-size: 15px; margin: 0; }
+  .cart-head .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .cart ul { list-style: none; margin: 10px 0 0; padding: 0; }
+  .cart li { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-top: 1px solid var(--line); }
+  .cart li .price { white-space: nowrap; }
+  .cart .total { font-weight: 600; }
+  .cart a { color: var(--accent); font-size: 13px; }
+  .cart .note { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .cart .busy { color: var(--accent); font-size: 13px; margin-top: 8px; }
+  button.small { padding: 2px 10px; font-size: 13px; white-space: nowrap; }
+  button:disabled { opacity: .5; cursor: default; }
   .add { margin-top: 20px; padding: 14px 16px; }
   .add h2 { font-size: 15px; margin: 0 0 10px; }
   .empty { padding: 28px; text-align: center; color: var(--muted); }
@@ -82,6 +95,8 @@
     </div>
     <button id="recompute" title="Recalculate from the synced orders. Run src/sync.py to pull new orders.">Recompute</button>
   </header>
+
+  <section class="card cart" id="cart"></section>
 
   <div class="bar">
     <div class="tabs" id="tabs" role="tablist"></div>
@@ -120,7 +135,7 @@ function cmp(a, b) {
   if (a == null || b == null) return (a == null) - (b == null);
   return a < b ? -1 : a > b ? 1 : 0;
 }
-const state = { items: [], tab: "due", open: null, sort: "frequency", sections: new Map() };
+const state = { items: [], cart: null, tab: "due", open: null, sort: "frequency", sections: new Map() };
 
 const $ = (sel) => document.querySelector(sel);
 function el(tag, props = {}, ...kids) {
@@ -137,13 +152,104 @@ async function api(path, method = "GET", body) {
   return data;
 }
 
+const money = (v) => v == null ? "—" : "$" + v.toFixed(2);
+
 async function load() {
-  const data = await api("/api/items");
+  const [data, cart] = await Promise.all([api("/api/items"), api("/api/cart")]);
   state.items = data.items;
+  state.cart = cart;
+  if (cart.busy) pollCart();
   $("#sync").textContent = data.last_sync
     ? "Orders last synced " + new Date(data.last_sync).toLocaleString() + " · run src/sync.py to refresh"
     : "No orders synced yet · run src/sync.py";
   render();
+}
+
+// While the browser is working on the cart, check in every couple of seconds, then reload everything once it's done.
+let polling = false;
+async function pollCart() {
+  if (polling) return;
+  polling = true;
+  try {
+    do {
+      await new Promise(r => setTimeout(r, 2000));
+      state.cart = await api("/api/cart");
+      renderCart();
+    } while (state.cart.busy);
+  } finally { polling = false; }
+  state.cartResult = state.cart.result;
+  await load();
+}
+
+async function cartAction(path, body) {
+  state.cartResult = null;
+  try {
+    await api(path, "POST", body);
+    state.cart = { ...state.cart, busy: true, message: "Starting…" };
+    renderCart();
+    pollCart();
+  } catch (e) { state.cartResult = { error: e.message }; renderCart(); }
+}
+
+const addToCart = (names) => cartAction("/api/cart/add", { item_types: names });
+const pendingAuto = () => state.items.filter(i => i.cart.auto && !i.cart.in_cart);
+
+function resultText(r) {
+  if (!r) return "";
+  if (r.error) return "Couldn't update the cart: " + r.error;
+  const parts = [];
+  if (r.added?.length) parts.push("Added " + r.added.join(", "));
+  if (r.skipped?.length) parts.push("Already in cart: " + r.skipped.join(", "));
+  if (r.failed?.length) parts.push("Couldn't add " + r.failed.join(", ") + " (see the Cart column)");
+  if (r.blocked) parts.push("Stopped: " + r.blocked);
+  return parts.join(" · ");
+}
+
+function renderCart() {
+  const c = state.cart, box = $("#cart");
+  if (!c) return;
+  const pending = pendingAuto();
+  const total = pending.reduce((sum, i) => sum + (i.cart.price || 0), 0);
+  const actions = [];
+  if (pending.length > 1) {
+    actions.push(el("button", {
+      className: "primary", disabled: c.busy, textContent: `Add all ${pending.length} overdue · ~${money(total)}`,
+      title: "High-confidence items that are overdue and not in the cart: " + pending.map(i => i.item_type).join(", "),
+      onclick: () => addToCart(pending.map(i => i.item_type)),
+    }));
+  }
+  actions.push(el("button", { disabled: c.busy, textContent: "Refresh", title: "Read the Fresh cart again", onclick: () => cartAction("/api/cart/refresh") }));
+  actions.push(el("a", { href: "https://www.amazon.com/cart/localmarket?almBrandId=QW1hem9uIEZyZXNo", target: "_blank", rel: "noopener", textContent: "Open Fresh cart ↗" }));
+
+  const count = c.lines.reduce((n, l) => n + l.quantity, 0);
+  const result = resultText(state.cartResult);
+  box.replaceChildren(...[
+    el("div", { className: "cart-head" },
+      el("h2", {}, "Fresh cart ", el("span", { className: "sub", textContent: c.fetched_at ? `${count} item${count !== 1 ? "s" : ""} · as of ` + new Date(c.fetched_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "not read yet" })),
+      el("div", { className: "actions" }, ...actions)),
+    c.busy ? el("div", { className: "busy", textContent: (c.message || "Working") + "… this takes about half a minute." }) : null,
+    result && !c.busy ? el("div", { className: state.cartResult?.error || state.cartResult?.blocked ? "err" : "note", textContent: result }) : null,
+    c.lines.length ? el("ul", {}, ...c.lines.map(l => el("li", {},
+      el("span", { textContent: (l.quantity > 1 ? l.quantity + "× " : "") + l.title }),
+      el("span", { className: "price", textContent: money((l.price || 0) * l.quantity) }))),
+      el("li", { className: "total" }, el("span", { textContent: "Subtotal" }), el("span", { className: "price", textContent: money(c.total) })))
+      : !c.busy ? el("div", { className: "note", textContent: c.fetched_at ? "Nothing in the cart." : "Press Refresh to read your cart, or wait for the automatic run." }) : null,
+    el("div", { className: "note", textContent: "Overdue high-confidence items are added automatically while this page's server runs. Checkout is always yours." })
+  ].filter(Boolean));
+}
+
+function cartCell(i) {
+  const c = i.cart;
+  if (c.in_cart) return el("span", { className: "pill", textContent: "In cart" });
+  if (!c.can_add) return "—";
+  const failed = state.cart?.failed?.[i.item_type];
+  return el("span", {},
+    el("button", {
+      className: "small", disabled: state.cart?.busy, textContent: "Add " + (c.price != null ? "· ~" + money(c.price) : ""),
+      title: `${c.quantity}× ${c.label}` + (failed ? ` (last try failed: ${failed})` : ""),
+      onclick: (e) => { e.stopPropagation(); addToCart([i.item_type]); },
+    }),
+    failed ? el("span", { className: "edited", textContent: "failed", title: failed }) : null);
 }
 
 function dueLabel(i) {
@@ -155,6 +261,7 @@ function dueLabel(i) {
 }
 
 function render() {
+  renderCart();
   const tabs = $("#tabs");
   tabs.replaceChildren(...TABS.map(([key, label, test]) =>
     el("button", {
@@ -178,11 +285,12 @@ function render() {
         i.overridden ? el("span", { className: "edited", textContent: "edited" }) : null),
       el("td", { className: "num", textContent: i.usual_qty + "×" }),
       el("td", { className: "num" }, dueLabel(i)),
-      el("td", { className: "hide-sm" }, i.confidence ? el("span", { className: "pill" + (i.confidence === "low" ? " low" : ""), textContent: i.confidence }) : "—")));
+      el("td", { className: "hide-sm" }, i.confidence ? el("span", { className: "pill" + (i.confidence === "low" ? " low" : ""), textContent: i.confidence }) : "—"),
+      el("td", { className: "num" }, cartCell(i))));
     if (open) body.append(detail(i));
   }
   list.replaceChildren(el("table", {},
-    el("thead", {}, el("tr", {}, ...["Item", "Last bought", "Interval", "Qty", "Next due", "Confidence"].map((h, n) =>
+    el("thead", {}, el("tr", {}, ...["Item", "Last bought", "Interval", "Qty", "Next due", "Confidence", "Cart"].map((h, n) =>
       el("th", { textContent: h, className: n === 1 || n === 5 ? "hide-sm" : "" })))), body));
 }
 
@@ -215,7 +323,6 @@ function detail(i) {
       onclick: () => act(() => api("/api/items/" + encodeURIComponent(i.item_type) + "/overrides", "DELETE")),
     }));
   }
-  const money = (v) => v == null ? "—" : "$" + v.toFixed(2);
   const brands = i.products.length ? [
     el("table", { className: "brands" },
       el("thead", {}, el("tr", {}, ...["", "Product", "Times bought", "Last price", "Avg price", ""].map(h => el("th", { textContent: h })))),
@@ -250,7 +357,7 @@ function detail(i) {
   }) : null;
 
   const found = i.products.length;
-  return el("tr", { className: "detail" }, el("td", { colSpan: 6 },
+  return el("tr", { className: "detail" }, el("td", { colSpan: 7 },
     section(i, "why", "Why this prediction", null, el("ul", { className: "why" }, i.rationale.map(t => el("li", { textContent: t })))),
     found ? section(i, "brands", "Brands you buy", found + (found === 1 ? " product" : " products"), ...brands) : null,
     section(i, "history", "Purchase history", i.purchases.length + " purchases", el("div", { className: "dates" }, chips, more)),

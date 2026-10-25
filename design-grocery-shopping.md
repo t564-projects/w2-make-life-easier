@@ -113,4 +113,7 @@ Each layer is useful on its own if the next one fails.
 2. **Analyze:** done. Intervals, quantities, confidence and due dates are computed into SQLite by `src/patterns.py`. Substitutes are grouped by item type.
 3. **Dashboard:** done. See above.
 4. **Notify:** daily email of due items.
-5. **Cart (stretch):** Alexa skill test, then Playwright fallback.
+5. **Cart:** done with Playwright (the Alexa route was skipped). `src/cart.py` logs in, enters Amazon Fresh and adds items through Fresh's Past Purchases page (falling back to a Fresh search), so nothing can land in the regular Amazon or Whole Foods carts. Each add is checked against the Fresh cart page, and the cart contents are stored in `cart_items`.
+   - **Automatic:** overdue items with high confidence that aren't in the cart yet are added, once per purchase cycle (if I remove one from the cart it is not re-added). Runs from `python src/cart.py` (cron-friendly) and every 6 hours while the dashboard runs (`app.py --no-auto` turns it off). The default product is tried first, then the backup.
+   - **Dashboard:** a Fresh cart panel (items, prices, subtotal, Refresh), an "Add · ~$X" button per due item, and "Add all N overdue" when more than one high-confidence item is overdue. Prices before adding are estimates from the last order; the cart shows Amazon's current prices.
+   - **Limits:** adds one unit when a product has to be found by search; stops and reports if Amazon shows a verification step; the first run in a session accepts Fresh's "switch to your last Fresh address" prompt.
