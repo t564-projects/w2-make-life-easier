@@ -34,11 +34,19 @@ CREATE TABLE IF NOT EXISTS order_items (
 );
 CREATE INDEX IF NOT EXISTS idx_items_asin ON order_items(asin);
 
--- Computed by patterns.py; rebuilt from order_items on every run, so never edit by hand.
+-- What kind of item each product is ("Non-Fat Greek Yogurt") and how to label it ("Chobani 32 oz").
+-- Seeded from item_types.json; rows with source 'manual' are my edits and are never overwritten.
+CREATE TABLE IF NOT EXISTS products (
+    asin      TEXT PRIMARY KEY,
+    item_type TEXT NOT NULL,
+    label     TEXT NOT NULL,
+    source    TEXT NOT NULL        -- seed | auto | manual
+);
+
+-- Computed by patterns.py, one row per item type; rebuilt from order_items on every run, so never edit by hand.
 CREATE TABLE IF NOT EXISTS item_stats (
-    asin          TEXT PRIMARY KEY,
-    title         TEXT NOT NULL,
-    n_purchases   INTEGER NOT NULL,
+    item_type     TEXT PRIMARY KEY,
+    n_purchases   INTEGER NOT NULL, -- delivery days on which any product of this type arrived
     first_bought  TEXT NOT NULL,
     last_bought   TEXT NOT NULL,
     interval_days REAL,             -- median gap between purchases; NULL with a single purchase
@@ -51,8 +59,8 @@ CREATE TABLE IF NOT EXISTS item_stats (
 
 -- Overrides always win over computed values and must survive reloads.
 CREATE TABLE IF NOT EXISTS overrides (
-    asin          TEXT PRIMARY KEY,
-    title         TEXT,             -- only set for items I add by hand that have no order history
+    item_type     TEXT PRIMARY KEY,
+    manual        INTEGER NOT NULL DEFAULT 0,  -- 1 for items I add by hand that have no order history
     interval_days REAL,
     quantity      INTEGER,
     paused        INTEGER NOT NULL DEFAULT 0,
@@ -66,6 +74,4 @@ def connect():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
-    if "title" not in {r[1] for r in conn.execute("PRAGMA table_info(overrides)")}:
-        conn.execute("ALTER TABLE overrides ADD COLUMN title TEXT")
     return conn

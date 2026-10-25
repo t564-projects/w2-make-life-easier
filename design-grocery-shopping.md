@@ -49,15 +49,17 @@ Amazon order history -> scraper -> SQLite -> pattern engine -> dashboard
 
 - `orders`: order number, date, synced_at. Fresh orders only.
 - `skipped_orders`: order number, date, reason (`whole_foods`, `other`) so sync doesn't refetch them.
+- `products`: ASIN -> item type ("Non-Fat Greek Yogurt") and label ("Chobani 32 oz"). Seeded from `src/item_types.json` (158 products typed by hand); products missing from it get a guessed type from their title and are flagged in the UI. My edits (`source = 'manual'`) are never overwritten.
 - `order_items`: ASIN, title, quantity, `received_qty`, price, weight, status. `received_qty` is quantity minus cancelled, refunded and out-of-stock units; the pattern engine uses it, not `quantity`.
-- `item_stats`: computed interval, usual quantity, confidence, next due date.
+- `item_stats`: one row per item type: computed interval, usual quantity, confidence, purchase dates.
 - `overrides`: my edits (frequency, quantity, paused, tracked). Overrides always win over computed values and must survive refreshes.
 
 ### Pattern engine
 
 Implemented in `src/patterns.py`; run it with `.venv/bin/python src/patterns.py`. Tests: `.venv/bin/python -m unittest discover -s tests`.
 
-- One purchase per item per delivery day; quantities from `received_qty` only (cancelled, refunded and out-of-stock units don't count).
+- Items are item types, not products: every brand of cottage cheese counts as "Cottage Cheese", so a brand switch isn't mistaken for one item lapsing and another starting. 159 products became 98 item types.
+- One purchase per item type per delivery day; quantities from `received_qty` only (cancelled, refunded and out-of-stock units don't count).
 - Interval = median gap between purchases (robust to one odd gap).
 - Usual quantity = most common quantity per purchase; ties take the smaller.
 - Spread = median absolute deviation of the gaps divided by the interval.
@@ -72,11 +74,14 @@ First run on 12 months of data: 159 items, 30 tracked, 25 lapsed, 104 candidates
 
 Implemented as a Flask app (`src/app.py`) serving one static page (`src/static/index.html`). Run `.venv/bin/python src/app.py` and open http://127.0.0.1:5000. API tests: `tests/test_app.py`.
 
-- Tabs: Due now, Tracked, Candidates, Lapsed, Paused, each with a count.
-- Table: item, last bought, interval, usual quantity, next due (with days overdue), confidence. Edited values are marked "edited".
-- Expanding a row shows the math, e.g. "Feb 8, Apr 26, Jun 18, Jun 28 -> median gap 53 days over 4 purchases -> medium confidence", plus every purchase date.
-- Controls per item: edit frequency and quantity (blank = back to computed), Track (promote a candidate), Pause or Resume, Reset my edits.
-- Add an item by hand (name, interval, quantity, optional ASIN). Hand-added items have no history, so they show as due right away; Remove deletes them.
+- Tabs: Due now, Tracked, Candidates, Lapsed, Paused, each with a count. Rows show the item type, not the product name.
+- Table: item type, last bought, interval, usual quantity, next due (with days overdue), confidence. Edited values are marked "edited".
+- Expanding a row shows, in order:
+  - **Why this prediction:** plain-language steps (how many purchases, the gaps between them, the typical wait and why the middle value is used, the confidence reason, last bought + interval = next due).
+  - **Brands you buy:** every product of that type with a role (default = bought most, backup = second, others), times bought, last price and average price per unit. "change type" moves a product to another type.
+  - **Purchase history:** the last 5 dates with the gap since the previous one; "Show all N dates" expands.
+  - **Adjust:** frequency and quantity (blank = back to computed), Track, Pause or Resume, Reset my edits.
+- Add an item by hand (name, interval, quantity). Hand-added items have no history, so they show as due right away; Remove deletes them. A name that already has history is rejected; edit that item instead.
 - Recompute re-runs the pattern engine. Pulling new orders is still `src/sync.py` (needs the browser login), not a button.
 
 ## Spike findings (3 months, run Oct 25 2026)
@@ -104,7 +109,7 @@ Implemented as a Flask app (`src/app.py`) serving one static page (`src/static/i
 Each layer is useful on its own if the next one fails.
 
 1. **Get the data:** done. `.venv/bin/python src/sync.py` logs in, lists orders for the last 12 months, and stores only Amazon Fresh orders in `data/grocery.db`. Whole Foods orders (my sister's) and regular Amazon orders are recorded in `skipped_orders` and ignored. Re-runs only fetch new orders and the last 14 days (cancellations and refunds land late); `--full` refetches everything.
-2. **Analyze:** done. Intervals, quantities, confidence and due dates are computed into SQLite by `src/patterns.py`. Known gap: substitutes (e.g. two brands of cottage cheese) are tracked as separate items.
+2. **Analyze:** done. Intervals, quantities, confidence and due dates are computed into SQLite by `src/patterns.py`. Substitutes are grouped by item type.
 3. **Dashboard:** done. See above.
 4. **Notify:** daily email of due items.
 5. **Cart (stretch):** Alexa skill test, then Playwright fallback.

@@ -39,9 +39,18 @@
   .pill.low { background: var(--line); color: var(--muted); }
   .edited { color: var(--warn); font-size: 12px; margin-left: 6px; }
   .detail td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
-  .detail .why { margin: 0 0 8px; }
-  .dates { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
-  .dates span { background: var(--line); border-radius: 6px; padding: 1px 8px; font-size: 12px; }
+  h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 6px; }
+  .detail h3:first-child { margin-top: 0; }
+  .why { margin: 0; padding-left: 20px; }
+  .why li { margin-bottom: 4px; }
+  .brands { width: auto; min-width: 60%; font-size: 14px; }
+  .brands th, .brands td { padding: 5px 14px 5px 0; border: 0; text-transform: none; letter-spacing: 0; }
+  .brands th { font-size: 12px; text-transform: uppercase; }
+  .pill.role-default { background: var(--accent); color: #fff; }
+  .link { background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: 12px; }
+  .dates { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .dates span.chip { background: var(--line); border-radius: 6px; padding: 1px 8px; font-size: 12px; }
+  .dates .gap { color: var(--muted); font-size: 12px; }
   .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   label { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
   input { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); width: 84px; }
@@ -72,10 +81,9 @@
   <form class="card add" id="add">
     <h2>Add an item by hand</h2>
     <div class="controls">
-      <input class="wide" name="title" placeholder="Item name" required>
+      <input class="wide" name="item_type" placeholder="Item name, e.g. Oat Milk" required>
       <label>every <input name="interval_days" type="number" min="1" step="1" value="7" required> days</label>
       <label>qty <input name="quantity" type="number" min="1" step="1" value="1" required></label>
-      <input name="asin" placeholder="ASIN (optional)">
       <button class="primary">Add</button>
     </div>
     <div class="err" id="add-err"></div>
@@ -141,9 +149,9 @@ function render() {
 
   const body = el("tbody");
   for (const i of rows) {
-    const open = state.open === i.asin;
-    body.append(el("tr", { className: "row", onclick: () => { state.open = open ? null : i.asin; render(); } },
-      el("td", {}, el("span", { className: "title", textContent: i.title })),
+    const open = state.open === i.item_type;
+    body.append(el("tr", { className: "row", onclick: () => { state.open = open ? null : i.item_type; render(); } },
+      el("td", {}, el("span", { className: "title", textContent: i.item_type })),
       el("td", { className: "num hide-sm", textContent: fmtDate(i.last_bought) }),
       el("td", { className: "num" }, i.interval_days ? "every " + +i.interval_days.toFixed(1) + "d" : "—",
         i.overridden ? el("span", { className: "edited", textContent: "edited" }) : null),
@@ -162,7 +170,7 @@ function detail(i) {
   const qty = el("input", { type: "number", min: "1", step: "1", value: i.usual_qty });
   const err = el("div", { className: "err" });
   const act = async (fn) => { try { await fn(); await load(); } catch (e) { err.textContent = e.message; } };
-  const patch = (body) => act(() => api("/api/items/" + encodeURIComponent(i.asin), "PATCH", body));
+  const patch = (body) => act(() => api("/api/items/" + encodeURIComponent(i.item_type), "PATCH", body));
 
   const buttons = [
     el("button", { className: "primary", textContent: "Save", onclick: () => patch({ interval_days: interval.value || null, quantity: qty.value || null }) }),
@@ -170,15 +178,54 @@ function detail(i) {
   if (i.status === "candidate" || i.status === "lapsed") buttons.push(el("button", { textContent: "Track", onclick: () => patch({ tracked: 1, paused: 0 }) }));
   if (i.status === "paused") buttons.push(el("button", { textContent: "Resume", onclick: () => patch({ paused: 0 }) }));
   else buttons.push(el("button", { textContent: "Pause", onclick: () => patch({ paused: 1 }) }));
-  if (i.overridden || i.manual || i.status === "paused" || state.tab === "tracked") {
+  if (i.overridden || i.manual || i.status === "paused") {
     buttons.push(el("button", {
       className: "danger", textContent: i.manual ? "Remove" : "Reset my edits",
-      onclick: () => act(() => api("/api/items/" + encodeURIComponent(i.asin) + "/overrides", "DELETE")),
+      onclick: () => act(() => api("/api/items/" + encodeURIComponent(i.item_type) + "/overrides", "DELETE")),
     }));
   }
+  const money = (v) => v == null ? "—" : "$" + v.toFixed(2);
+  const brands = i.products.length ? [
+    el("h3", { textContent: "Brands you buy" }),
+    el("table", { className: "brands" },
+      el("thead", {}, el("tr", {}, ...["", "Product", "Times bought", "Last price", "Avg price", ""].map(h => el("th", { textContent: h })))),
+      el("tbody", {}, i.products.map(p => el("tr", {},
+        el("td", {}, el("span", { className: "pill role-" + p.role + (p.role === "default" ? "" : " low"), textContent: p.role })),
+        el("td", { textContent: p.label }),
+        el("td", { textContent: p.times }),
+        el("td", { textContent: money(p.last_price) }),
+        el("td", { textContent: money(p.avg_price) }),
+        el("td", {}, el("button", {
+          className: "link", textContent: p.guessed ? "type guessed, change" : "change type",
+          onclick: () => {
+            const t = prompt("Item type for " + p.label + ":", i.item_type);
+            if (t && t.trim() && t.trim() !== i.item_type) act(() => api("/api/products/" + p.asin, "PATCH", { item_type: t.trim() }));
+          },
+        })))))),
+  ] : [];
+
+  const SHOWN = 5;
+  const all = state.allDates === i.item_type;
+  const list = all ? i.purchases : i.purchases.slice(-SHOWN);
+  const offset = i.purchases.length - list.length;
+  const chips = list.flatMap(([d, q], n) => {
+    const prev = i.purchases[offset + n - 1];
+    const gap = prev ? Math.round((new Date(d) - new Date(prev[0])) / 864e5) : null;
+    return [gap != null ? el("span", { className: "gap", textContent: "+" + gap + "d →" }) : null,
+            el("span", { className: "chip", textContent: fmtDate(d) + (q > 1 ? " ×" + q : "") })];
+  });
+  const more = i.purchases.length > SHOWN ? el("button", {
+    className: "link", textContent: all ? "Show last " + SHOWN + " only" : "Show all " + i.purchases.length + " dates",
+    onclick: () => { state.allDates = all ? null : i.item_type; render(); },
+  }) : null;
+
   return el("tr", { className: "detail" }, el("td", { colSpan: 6 },
-    el("p", { className: "why", textContent: i.explanation }),
-    el("div", { className: "dates" }, i.purchases.map(([d, q]) => el("span", { textContent: fmtDate(d) + (q > 1 ? " ×" + q : "") }))),
+    el("h3", { textContent: "Why this prediction" }),
+    el("ul", { className: "why" }, i.rationale.map(t => el("li", { textContent: t }))),
+    ...brands,
+    el("h3", { textContent: "Purchase history" }),
+    el("div", { className: "dates" }, chips, more),
+    el("h3", { textContent: "Adjust" }),
     el("div", { className: "controls" },
       el("label", {}, "every", interval, "days"), el("label", {}, "qty", qty), ...buttons),
     err));

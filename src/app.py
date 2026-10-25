@@ -2,9 +2,6 @@
 
 Usage: .venv/bin/python src/app.py   then open http://127.0.0.1:5000
 """
-import re
-from datetime import datetime
-
 from flask import Flask, jsonify, request, send_from_directory
 
 import patterns
@@ -32,8 +29,8 @@ def recompute():
     return jsonify({"items": patterns.compute_stats(connect())})
 
 
-@app.patch("/api/items/<asin>")
-def edit(asin):
+@app.patch("/api/items/<path:item_type>")
+def edit(item_type):
     """Set override fields. A null value clears that field, so the computed value applies again."""
     body = request.get_json(force=True)
     unknown = set(body) - set(EDITABLE)
@@ -41,7 +38,7 @@ def edit(asin):
         return jsonify(error=f"unknown fields: {sorted(unknown)}"), 400
     conn = connect()
     with conn:
-        conn.execute("INSERT OR IGNORE INTO overrides (asin) VALUES (?)", (asin,))
+        conn.execute("INSERT OR IGNORE INTO overrides (item_type) VALUES (?)", (item_type,))
         for field, value in body.items():
             if value is not None:
                 try:
@@ -50,35 +47,55 @@ def edit(asin):
                     return jsonify(error=f"bad value for {field}"), 400
                 if field in ("interval_days", "quantity") and value <= 0:
                     return jsonify(error=f"{field} must be positive"), 400
-            conn.execute(f"UPDATE overrides SET {field} = ? WHERE asin = ?", (value, asin))
+            conn.execute(f"UPDATE overrides SET {field} = ? WHERE item_type = ?", (value, item_type))
     return jsonify(ok=True)
 
 
-@app.delete("/api/items/<asin>/overrides")
-def reset(asin):
+@app.delete("/api/items/<path:item_type>/overrides")
+def reset(item_type):
     """Drop my edits for an item. Hand-added items are removed entirely."""
     conn = connect()
     with conn:
-        conn.execute("DELETE FROM overrides WHERE asin = ?", (asin,))
+        conn.execute("DELETE FROM overrides WHERE item_type = ?", (item_type,))
     return jsonify(ok=True)
 
 
 @app.post("/api/items")
 def add():
     body = request.get_json(force=True)
-    title = (body.get("title") or "").strip()
+    item_type = (body.get("item_type") or "").strip()
     try:
         interval, qty = float(body["interval_days"]), int(body.get("quantity") or 1)
     except (KeyError, TypeError, ValueError):
         return jsonify(error="interval_days and quantity must be numbers"), 400
-    if not title or interval <= 0 or qty <= 0:
-        return jsonify(error="title, a positive interval and a positive quantity are required"), 400
-    asin = (body.get("asin") or "").strip() or "manual-" + re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    if not item_type or interval <= 0 or qty <= 0:
+        return jsonify(error="a name, a positive interval and a positive quantity are required"), 400
     conn = connect()
+    if conn.execute("SELECT 1 FROM item_stats WHERE item_type = ? COLLATE NOCASE", (item_type,)).fetchone():
+        return jsonify(error=f"'{item_type}' is already in your history; edit it there instead"), 400
     with conn:
-        conn.execute("INSERT OR REPLACE INTO overrides (asin, title, interval_days, quantity, tracked)"
-                     " VALUES (?,?,?,?,1)", (asin, title, interval, qty))
-    return jsonify(asin=asin)
+        conn.execute("INSERT OR REPLACE INTO overrides (item_type, manual, interval_days, quantity, tracked)"
+                     " VALUES (?,1,?,?,1)", (item_type, interval, qty))
+    return jsonify(item_type=item_type)
+
+
+@app.patch("/api/products/<asin>")
+def edit_product(asin):
+    """Move a product to another item type (or rename its label). The next recompute regroups the history."""
+    body = request.get_json(force=True)
+    item_type, label = (body.get("item_type") or "").strip(), (body.get("label") or "").strip()
+    conn = connect()
+    if not conn.execute("SELECT 1 FROM products WHERE asin = ?", (asin,)).fetchone():
+        return jsonify(error="unknown product"), 404
+    if not item_type and not label:
+        return jsonify(error="give an item_type or a label"), 400
+    with conn:
+        if item_type:
+            conn.execute("UPDATE products SET item_type = ?, source = 'manual' WHERE asin = ?", (item_type, asin))
+        if label:
+            conn.execute("UPDATE products SET label = ?, source = 'manual' WHERE asin = ?", (label, asin))
+    patterns.compute_stats(conn)
+    return jsonify(ok=True)
 
 
 if __name__ == "__main__":
