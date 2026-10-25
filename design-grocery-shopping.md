@@ -77,7 +77,7 @@ Implemented as a Flask app (`src/app.py`) serving one static page (`src/static/i
 - Tabs: Due now, Tracked, Candidates, Lapsed, Paused, each with a count. Rows show the item type, not the product name.
 - Sorting: a "Sort by" menu with Most frequent (default; shortest interval first, ties go to the item bought more often), Last bought (most recent first), Item (A to Z) and Next due (most overdue first). Items with no date or interval sort last.
 - Table: item type, last bought, interval, usual quantity, next due (with days overdue), confidence. Edited values are marked "edited".
-- Expanding a row shows four collapsed sections (click a heading to open it; open sections stay open while I browse), in order:
+- Expanding a row shows four collapsible sections (Adjust starts open, the rest collapsed; click a heading to toggle, and the choice sticks while I browse), in order:
   - **Why this prediction:** plain-language steps (how many purchases, the gaps between them, the typical wait and why the middle value is used, the confidence reason, last bought + interval = next due).
   - **Brands you buy:** every product of that type with a role (default = bought most, backup = second, others), times bought, last price and average price per unit. "change type" moves a product to another type.
   - **Purchase history:** the last 5 dates with the gap since the previous one; "Show all N dates" expands.

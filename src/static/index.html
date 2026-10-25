@@ -120,7 +120,7 @@ function cmp(a, b) {
   if (a == null || b == null) return (a == null) - (b == null);
   return a < b ? -1 : a > b ? 1 : 0;
 }
-const state = { items: [], tab: "due", open: null, sort: "frequency", sections: new Set() };
+const state = { items: [], tab: "due", open: null, sort: "frequency", sections: new Map() };
 
 const $ = (sel) => document.querySelector(sel);
 function el(tag, props = {}, ...kids) {
@@ -186,13 +186,13 @@ function render() {
       el("th", { textContent: h, className: n === 1 || n === 5 ? "hide-sm" : "" })))), body));
 }
 
-// A collapsible block inside the expanded row; which ones are open survives re-renders.
+// A collapsible block inside the expanded row. Adjust starts open; whatever I open or close survives re-renders.
 function section(i, key, title, hint, ...body) {
   const id = i.item_type + "|" + key;
-  const node = el("details", { className: "section", open: state.sections.has(id) },
+  const node = el("details", { className: "section", open: state.sections.get(id) ?? key === "adjust" },
     el("summary", {}, title, hint ? el("span", { className: "hint", textContent: hint }) : null),
     el("div", { className: "body" }, ...body));
-  node.ontoggle = () => { node.open ? state.sections.add(id) : state.sections.delete(id); };
+  node.ontoggle = () => state.sections.set(id, node.open);
   return node;
 }
 
