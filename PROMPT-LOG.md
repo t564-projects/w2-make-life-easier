@@ -128,3 +128,11 @@ Confirmed the working tree was clean (everything already committed), checked the
 Model: Sonnet 5.5 (`claude-sonnet-5-5`). Tokens: not measured this turn.
 
 Added `src/cart.py`, which logs in, enters Amazon Fresh in a headless browser and adds items through Fresh's Past Purchases page (so nothing goes to the Whole Foods cart), then checks the Fresh cart page to confirm. High-confidence overdue items are added automatically (once per purchase cycle, default product then backup); the dashboard has a Fresh cart panel with items, prices and subtotal, an "Add" button per due item and "Add all N overdue" when there is more than one. Tested live: Spring Mix and Strawberries are now in the real Fresh cart; Sandwich Bread failed because its products aren't available on Fresh right now. Commit `3fc7dac`.
+
+## 16. Submission text, screenshots and a password
+
+> I want to publish this but it should have a password to actually add things in my cart, can we do that? commit, and push?
+
+Model: Sonnet 5.5 (`claude-sonnet-5-5`). Tokens: not measured this turn.
+
+Earlier in this session: wrote the grievance and resolution text for the course submission form and took dashboard screenshots (now in `screenshots/`). This turn: setting `DASHBOARD_PASSWORD` in `.env` makes the server refuse every change (adding to the cart, refreshing it, edits, recompute) unless the request carries the password; viewing stays open. The page asks for the password once per tab when a change is rejected. `--host` lets the server listen beyond this laptop, and it refuses to start that way without a password. Added a test; all 38 pass. Checked live: reading returns 200, adding without the password returns 401. Commit `ab3f595`. The app still needs my Amazon login on this laptop, so "publishing" means serving it from here, not a separate host.
