@@ -1,41 +1,23 @@
 """Local dashboard for the Fresh restock assistant.
 
 Usage: .venv/bin/python src/app.py            then open http://127.0.0.1:5000
-       DASHBOARD_PASSWORD=... in .env         anyone can look, but changing anything (adding to the cart, edits) needs it
-       --host 0.0.0.0                         to serve beyond this laptop (set a password first)
        .venv/bin/python src/app.py --no-auto  same, without filling the Fresh cart on its own (--port N to change the port)
 """
 import argparse
-import hmac
-import os
 import threading
 import time
-from pathlib import Path
 
-from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
 
 import cart
 import patterns
 from db import connect
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
 AUTO_EVERY = 6 * 3600  # while the dashboard is running, look for overdue high-confidence items this often
 
 EDITABLE = {"interval_days": float, "quantity": int, "paused": int, "tracked": int}
-
-
-@app.before_request
-def require_password():
-    """With DASHBOARD_PASSWORD set, every write (cart, edits, recompute) must send it; reading stays open."""
-    password = os.getenv("DASHBOARD_PASSWORD")
-    if not password or request.method in ("GET", "HEAD", "OPTIONS"):
-        return None
-    if not hmac.compare_digest(request.headers.get("X-Dashboard-Password", "").encode(), password.encode()):
-        return jsonify(error="wrong or missing password"), 401
 
 
 @app.get("/")
@@ -168,11 +150,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-auto", action="store_true", help="don't add overdue high-confidence items to the cart on my behalf")
     ap.add_argument("--port", type=int, default=5000)
-    ap.add_argument("--host", default="127.0.0.1")
     args = ap.parse_args()
     patterns.compute_stats(connect())
     if not args.no_auto:
         threading.Thread(target=auto_loop, daemon=True).start()
-    if args.host != "127.0.0.1" and not os.getenv("DASHBOARD_PASSWORD"):
-        ap.error("set DASHBOARD_PASSWORD in .env before serving beyond this laptop")
-    app.run(host=args.host, port=args.port, debug=False)
+    app.run(host="127.0.0.1", port=args.port, debug=False)
