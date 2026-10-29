@@ -1,7 +1,9 @@
 import sys
 from datetime import date, timedelta
+import os
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -14,6 +16,10 @@ class AppTest(unittest.TestCase):
         db.DB_PATH = Path(self.tmp.name) / "test.db"
         import app
         import patterns
+        env = mock.patch.dict(os.environ)  # a password in .env must not leak into these tests
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("DASHBOARD_PASSWORD", None)
         conn = db.connect()
         with conn:
             for k in range(6):  # weekly, most recent 3 days ago
@@ -80,6 +86,16 @@ class AppTest(unittest.TestCase):
         self.assertIn("Dairy Milk", items)
         self.assertNotIn("Milk", items)
         self.assertEqual(self.client.patch("/api/products/NOPE", json={"item_type": "x"}).status_code, 404)
+
+    def test_password_guards_writes_but_not_reads(self):
+        os.environ["DASHBOARD_PASSWORD"] = "hunter2"
+        self.assertEqual(self.client.get("/api/items").status_code, 200)
+        for headers in ({}, {"X-Dashboard-Password": "nope"}):
+            self.assertEqual(self.client.post("/api/cart/add", json={"item_types": ["Milk"]}, headers=headers).status_code, 401)
+            self.assertEqual(self.client.patch("/api/items/Milk", json={"quantity": 3}, headers=headers).status_code, 401)
+        self.assertEqual(self.items()["Milk"]["overridden"], False)
+        ok = self.client.patch("/api/items/Milk", json={"quantity": 3}, headers={"X-Dashboard-Password": "hunter2"})
+        self.assertEqual(ok.status_code, 200)
 
 
 if __name__ == "__main__":
